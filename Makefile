@@ -45,7 +45,7 @@ install: all
 	chmod 644 ${DESTDIR}${MANPREFIX}/man1/dwm.1
 
 install-font:
-	cp ./SauceCodeProNerdFont-Medium.ttf /usr/share/fonts/truetype/SauceCodeProNerdFont-Medium.ttf
+	cp ./SauceCodeProNerdFont-Medium.ttf ${DESTDIR}/usr/share/fonts/truetype/SauceCodeProNerdFont-Medium.ttf
 
 uninstall:
 	rm -f ${DESTDIR}${PREFIX}/bin/dwm\
