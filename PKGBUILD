@@ -2,7 +2,7 @@
 
 pkgname=rxtdwm
 _pkgname=dwm
-pkgver=6.2.r5.441efb7
+pkgver=6.2.r6.9bce143
 pkgrel=1
 epoch=1
 pkgdesc="My dwm - dynamic window manager"
@@ -31,7 +31,7 @@ pkgver() {
 package() {
 	cd "${_pkgname}"
 	make PREFIX=/usr DESTDIR="${pkgdir}" install
-	make install-font
+	make DESTDIR="${pkgdir}" install-font
 	install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 	install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
 }
