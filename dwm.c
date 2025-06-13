@@ -1292,10 +1292,12 @@ motionnotify(XEvent *e)
 void
 genericeventnotify(XEvent *e)
 {
+#ifdef XINPUT
 	if (e->xcookie.extension == xinputextensionop &&
 	    e->xcookie.evtype == XI_RawMotion) {
 		rawmotionnotify(e);
 	}
+#endif /* XINPUT */
 }
 
 void
