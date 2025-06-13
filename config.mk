@@ -14,6 +14,10 @@ X11LIB = /usr/X11R6/lib
 XINERAMALIBS  = -lXinerama
 XINERAMAFLAGS = -DXINERAMA
 
+# Xinput extensions, comment if you don't want it
+XINPUTLIBS = -lXi
+XINPUTFLAGS = -DXINPUT
+
 # freetype
 FREETYPELIBS = -lfontconfig -lXft
 FREETYPEINC = /usr/include/freetype2

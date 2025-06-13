@@ -31,6 +31,9 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <X11/cursorfont.h>
+#ifdef XINPUT
+#include <X11/extensions/XInput2.h>
+#endif /* XINPUT */
 #include <X11/keysym.h>
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
@@ -184,6 +187,7 @@ static void configure(Client *c);
 static void configurenotify(XEvent *e);
 static void configurerequest(XEvent *e);
 static Monitor *createmon(void);
+static void cyclelayout(const Arg *arg);
 static void destroynotify(XEvent *e);
 static void detach(Client *c);
 static void detachstack(Client *c);
@@ -211,12 +215,16 @@ static void mappingnotify(XEvent *e);
 static void maprequest(XEvent *e);
 static void monocle(Monitor *m);
 static void motionnotify(XEvent *e);
+static void rawmotionnotify(XEvent *e);
+static void genericeventnotify(XEvent *e);
 static void movemouse(const Arg *arg);
 static Client *nexttiled(Client *c);
 static void pop(Client *);
 static void propertynotify(XEvent *e);
 static void quit(const Arg *arg);
 static Monitor *recttomon(int x, int y, int w, int h);
+static Monitor *raycastx(Monitor *src, int y, int dx);
+static Monitor *raycasty(Monitor *src, int x, int dy);
 static void resize(Client *c, int x, int y, int w, int h, int interact);
 static void resizeclient(Client *c, int x, int y, int w, int h);
 static void resizemouse(const Arg *arg);
@@ -279,6 +287,9 @@ static int sw, sh;           /* X display screen geometry width, height */
 static int bh, blw = 0;      /* bar geometry */
 static int lrpad;            /* sum of left and right padding for text */
 static int (*xerrorxlib)(Display *, XErrorEvent *);
+#ifdef XINPUT
+static int xinputextensionop;
+#endif /* XINPUT */
 static unsigned int numlockmask = 0;
 static void (*handler[LASTEvent]) (XEvent *) = {
 	[ButtonPress] = buttonpress,
@@ -294,7 +305,8 @@ static void (*handler[LASTEvent]) (XEvent *) = {
 	[MapRequest] = maprequest,
 	[MotionNotify] = motionnotify,
 	[PropertyNotify] = propertynotify,
-	[UnmapNotify] = unmapnotify
+	[UnmapNotify] = unmapnotify,
+	[GenericEvent] = genericeventnotify,
 };
 static Atom wmatom[WMLast], netatom[NetLast];
 static int running = 1;
@@ -734,6 +746,23 @@ createmon(void)
 }
 
 void
+cyclelayout(const Arg *arg) {
+	Layout *l;
+	for(l = (Layout *)layouts; l != selmon->lt[selmon->sellt]; l++);
+	if(arg->i > 0) {
+		if(l->symbol && (l + 1)->symbol)
+			setlayout(&((Arg) { .v = (l + 1) }));
+		else
+			setlayout(&((Arg) { .v = layouts }));
+	} else {
+		if(l != layouts && (l - 1)->symbol)
+			setlayout(&((Arg) { .v = (l - 1) }));
+		else
+			setlayout(&((Arg) { .v = &layouts[LENGTH(layouts) - 2] }));
+	}
+}
+
+void
 destroynotify(XEvent *e)
 {
 	Client *c;
@@ -811,9 +840,10 @@ drawbar(Monitor *m)
 		drw_setscheme(drw, scheme[m->tagset[m->seltags] & 1 << i ? SchemeSel : SchemeNorm]);
 		drw_text(drw, x, 0, w, bh, lrpad / 2, tags[i], urg & 1 << i);
 		if (occ & 1 << i)
-			drw_rect(drw, x + boxs, boxs, boxw, boxw,
-				m == selmon && selmon->sel && selmon->sel->tags & 1 << i,
-				urg & 1 << i);
+			drw_rect(drw, x + boxw, 0, w - ( 2 * boxw + 1), boxw,
+			    m == selmon && selmon->sel && selmon->sel->tags & 1 << i,
+			    urg & 1 << i);
+
 		x += w;
 	}
 	w = blw = TEXTW(m->ltsymbol);
@@ -1260,6 +1290,58 @@ motionnotify(XEvent *e)
 }
 
 void
+genericeventnotify(XEvent *e)
+{
+	if (e->xcookie.extension == xinputextensionop &&
+	    e->xcookie.evtype == XI_RawMotion) {
+		rawmotionnotify(e);
+	}
+}
+
+void
+rawmotionnotify(XEvent *e)
+{
+	if (torusenabled == 0) return;
+
+	int x, y;
+	if (!getrootptr(&x, &y)) return;
+
+	int warpx = x;
+	int warpy = y;
+	if (BETWEEN(x, selmon->mx, selmon->mx + wormholedelta)) {
+		/* ensure there's no monitor to the left */
+		if (recttomon(selmon->mx - 1, y, 1, 1) != selmon)
+			return;
+		/* take the wormhole */
+		Monitor *farright = raycastx(selmon, y, 1);
+		warpx = farright->mx + farright->mw - wormholedelta - 1;
+	} else if (BETWEEN(x, selmon->mx + selmon->mw - wormholedelta,
+	                   selmon->mx + selmon->mw)) {
+		/* ensure there's no monitor to the right */
+		if (recttomon(selmon->mx + selmon->mw + 1, y, 1, 1) != selmon)
+			return;
+		Monitor *farleft = raycastx(selmon, y, -1);
+		warpx = farleft->mx + wormholedelta + 1;
+	} else if (BETWEEN(y, selmon->my, selmon->my + wormholedelta)) {
+		/* ensure there's no monitor under us */
+		if (recttomon(x, y, selmon->my - 1, 1) != selmon)
+			return;
+		Monitor *farup = raycasty(selmon, x, 1);
+		warpy = farup->my + farup->mh - wormholedelta - 1;
+	} else if (BETWEEN(y, selmon->my + selmon->mh - wormholedelta,
+	                   selmon->my + selmon->mh)) {
+		/* ensure there's no monitor above us */
+		if (recttomon(x, y, selmon->my + selmon->mh + 1, 1) != selmon)
+			return;
+		Monitor *fardown = raycasty(selmon, x, -1);
+		warpy = fardown->my + wormholedelta + 1;
+	}
+
+	if (warpx != x || warpy != y)
+		XWarpPointer(dpy, None, root, 0, 0, 0, 0, warpx, warpy);
+}
+
+void
 movemouse(const Arg *arg)
 {
 	int x, y, ocx, ocy, nx, ny;
@@ -1390,6 +1472,44 @@ recttomon(int x, int y, int w, int h)
 			r = m;
 		}
 	return r;
+}
+
+Monitor *
+raycastx(Monitor *src, int y, int dx)
+{
+	Monitor *farthest = src;
+	for (Monitor *m = mons; m; m = m->next) {
+		int scansy = BETWEEN(y, m->my, m->my + m->mh);
+		if (!scansy) {
+			continue;
+		}
+		if (dx == 1 && (m->mx + m->mw > farthest->mx + farthest->mw)) {
+			farthest = m;
+		}
+		if (dx == -1 && (m->mx < farthest->mx)) {
+			farthest = m;
+		}
+	}
+	return farthest;
+}
+
+Monitor *
+raycasty(Monitor *src, int x, int dy)
+{
+	Monitor *farthest = src;
+	for (Monitor *m = mons; m; m = m->next) {
+		int scansx = BETWEEN(x, m->mx, m->mx + m->mw);
+		if (!scansx) {
+			continue;
+		}
+		if (dy == 1 && (m->my + m->mh > farthest->my + farthest->mh)) {
+			farthest = m;
+		}
+		if (dy == -1 && (m->my < farthest->my)) {
+			farthest = m;
+		}
+	}
+	return farthest;
 }
 
 void
@@ -1729,6 +1849,23 @@ setup(void)
 		|LeaveWindowMask|StructureNotifyMask|PropertyChangeMask;
 	XChangeWindowAttributes(dpy, root, CWEventMask|CWCursor, &wa);
 	XSelectInput(dpy, root, wa.event_mask);
+#ifdef XINPUT
+	/* select XInput raw motion events; we can't hook into PointerMotionMask since some windows block it. */
+	size_t maskbyteslen = XIMaskLen(XI_RawMotion);
+	unsigned char *maskbytes = calloc(maskbyteslen, sizeof(unsigned char));
+	XISetMask(maskbytes, XI_RawMotion);
+	XIEventMask mask;
+	int _unused;
+	if (!XQueryExtension(dpy, "XInputExtension", &xinputextensionop,
+	                     &_unused, &_unused)) {
+		fprintf(stderr, "XInputExtension not found");
+		exit(1);
+	}
+	mask.deviceid = XIAllMasterDevices;
+	mask.mask_len = maskbyteslen * sizeof(unsigned char);
+	mask.mask = maskbytes;
+	XISelectEvents(dpy, root, &mask, 1);
+#endif /* XINPUT */
 	grabkeys();
 	focus(NULL);
 }
