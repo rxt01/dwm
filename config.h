@@ -74,7 +74,7 @@ static const char *termcmd[]  = { "st", NULL };
 
 static Key keys[] = {
 	/* modifier                     key        function        argument */
-        { MODKEY,                       XK_l,      spawn,          SHCMD("betterlockscreen -l") },
+        { MODKEY,                       XK_l,      setmfact,	   {.f = +0.05} },
 	{ MODKEY,                       XK_k,      focusstack,     {.i = -1 } },
 	{ MODKEY,                       XK_j,      focusstack,     {.i = +1 } },
 	{ MODKEY,                       XK_h,      setmfact,       {.f = -0.05} },

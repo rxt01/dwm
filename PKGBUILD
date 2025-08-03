@@ -2,7 +2,7 @@
 
 pkgname=rxtdwm
 _pkgname=dwm
-pkgver=6.2.r7.c7d9a45
+pkgver=6.2.r8.41a0c49
 pkgrel=1
 epoch=1
 pkgdesc="My dwm - dynamic window manager"
